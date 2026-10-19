@@ -1,0 +1,10 @@
+{
+  "interface": "enp1s0",
+  "connection": "Factory LAN",
+  "ip": "192.168.40.27",
+  "prefix": 24,
+  "gateway": "192.168.40.1",
+  "dns": ["192.168.40.1", "1.1.1.1"],
+  "dhcp": true,
+  "wifi": false
+}

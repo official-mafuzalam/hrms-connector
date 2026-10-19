@@ -1,0 +1,21 @@
+{
+  "key": "HRMS1.eyJ2IjoxLCJ1IjoiaHR0cHM6Ly9ocm1zLm9jdG9zeW5jc29mdHdhcmUuY29tIiwidCI6IjFZWkxhdzNSNU8zS1JSd3RQU0dPMFRVTGIwdzNCQ1FXWTVEb3BqMENrNmM5VkdBSiJ9",
+  "port": 8081,
+  "bind": "0.0.0.0",
+  "ui_port": 8082,
+  "language": "en",
+  "allowed_cidrs": [
+    "127.0.0.0/8",
+    "::1/128",
+    "10.0.0.0/8",
+    "172.16.0.0/12",
+    "192.168.0.0/16",
+    "fc00::/7"
+  ],
+  "upstream_timeout": 15,
+  "max_body_kb": 1024,
+  "tls_verify": true,
+  "http_proxy": "",
+  "log_level": "info",
+  "ui_pin_hash": ""
+}

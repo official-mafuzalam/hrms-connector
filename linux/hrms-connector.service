@@ -1,0 +1,22 @@
+[Unit]
+Description=HRMS Connector ADMS relay
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=hrms-connector
+Group=hrms-connector
+ExecStart=/usr/local/bin/connector run --data-dir=/var/lib/hrms-connector
+Restart=always
+RestartSec=5
+MemoryMax=64M
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/hrms-connector
+WorkingDirectory=/var/lib/hrms-connector
+
+[Install]
+WantedBy=multi-user.target

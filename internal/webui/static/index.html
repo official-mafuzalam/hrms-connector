@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HRMS Connector</title>
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    .setup-step{display:flex;gap:16px;margin-bottom:14px}.setup-step h2{font-size:14px;margin:1px 0 12px}.setup-step-content{flex:1;min-width:0}.step-number{width:27px;height:27px;flex:none;border-radius:50%;background:#eff5ff;color:#2563eb;display:grid;place-items:center;font-weight:700}.copy-stack{display:grid;gap:8px}.live-device.connected{border-color:#a8dfbd;background:#f0fbf5}.adapter-choice{margin-top:12px;max-width:500px}.adapter-choice label{display:block;margin-bottom:6px;color:#66758a;font-size:11px}.network-row details{margin-top:6px;color:#8491a2;font-size:11px}.network-row details summary{cursor:pointer}.network-row details small{display:block;margin-top:5px}.setup-grid select{min-width:0;max-width:100%;border:1px solid #d9e1eb;border-radius:4px;padding:5px;font:inherit}
+    @media print{.topbar,.sidebar,.screen-only,.button,.copy{display:none!important}body,.shell,main{display:block!important;background:#fff!important;padding:0!important}.page{display:none!important}#page-setup{display:block!important;max-width:none}.card{break-inside:avoid;box-shadow:none}.setup-step{border-color:#bbb}.setup-grid{grid-template-columns:repeat(3,1fr)}}
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">H</span><div><strong>HRMS Connector</strong><small>Factory device bridge</small></div></div>
+    <div class="top-actions"><span id="version-top" class="version"></span><button id="language" class="button quiet">বাংলা</button></div>
+  </header>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="menu-label" data-t="menu">MENU</div>
+      <button class="nav active" data-page="status" data-t="status">Status</button>
+      <button class="nav" data-page="setup" data-t="setup">Device Setup</button>
+      <button class="nav" data-page="settings" data-t="settings">Settings</button>
+      <button class="nav" data-page="logs" data-t="logs">Logs</button>
+      <button class="nav" data-page="about" data-t="about">About</button>
+      <div class="sidebar-foot"><span class="dot"></span><span data-t="localOnly">Local management</span></div>
+    </aside>
+    <main>
+      <section id="page-status" class="page">
+        <div class="page-heading"><div><p class="eyebrow" data-t="overview">OVERVIEW</p><h1 data-t="status">Status</h1><p class="sub" data-t="statusSub">Connection health and device activity</p></div><button class="button" id="refresh" data-t="refresh">Refresh</button></div>
+        <div id="connection-banner" class="banner amber"><span class="banner-icon">●</span><div><strong id="connection-title">Connecting…</strong><small id="connection-detail" style="white-space:pre-line"></small></div><span id="server-state" class="banner-state"></span></div>
+        <div class="grid two">
+          <article class="card company-card"><div class="card-title" data-t="hrmsServer">HRMS SERVER</div><div id="company" class="company-name">—</div><div id="site" class="muted">—</div><div class="inline-info"><span data-t="lastSuccess">Last successful contact</span><strong id="last-ok">—</strong></div><div id="update-notice" class="update-notice hidden"></div></article>
+          <article class="card"><div class="card-title" data-t="activity">ACTIVITY</div><div class="metrics"><div><strong id="total-requests">0</strong><span data-t="totalRequests">Total requests</span></div><div><strong id="total-errors">0</strong><span data-t="errors">Errors</span></div><div><strong id="upstream-errors">0</strong><span data-t="upstream503">Upstream 503</span></div><div><strong id="active-devices">0</strong><span data-t="devices5m">Devices · 5 min</span></div></div></article>
+        </div>
+        <div class="section-heading"><div><h2 data-t="networkAddress">PC network address</h2><p class="sub" data-t="networkAddressSub">Keep the address the devices use from changing</p></div></div>
+        <article class="card network-card">
+          <div class="network-row"><div><strong id="network-state">Checking network…</strong><details><summary data-t="details">Details</summary><small id="network-detail" style="white-space:pre-line"></small></details></div><button id="fix-network" class="button primary hidden" data-t="fixIP">Fix IP address</button></div>
+          <div id="adapter-choice-wrap" class="adapter-choice hidden"><label for="adapter-choice" data-t="chooseAdapter">Choose the network adapter</label><div class="key-row"><select id="adapter-choice"></select><button id="save-adapter-choice" class="button secondary" data-t="saveChoice">Use adapter</button></div></div>
+          <p class="network-warning" data-t="routerWarning">Your router must not assign this address to another device. We recommend creating a DHCP reservation for this PC in the router settings.</p>
+        </article>
+        <div class="section-heading"><div><h2 data-t="devices">Devices</h2><p class="sub" data-t="devicesSub">Recently active terminals</p></div></div>
+        <article class="card table-card"><table><thead><tr><th>SN</th><th data-t="ip">IP ADDRESS</th><th data-t="lastSeen">LAST SEEN</th><th data-t="requests">REQUESTS</th></tr></thead><tbody id="device-rows"><tr><td colspan="4" class="empty" data-t="noDevices">No devices have connected yet.</td></tr></tbody></table></article>
+        <div class="section-heading"><div><h2 data-t="deviceSetup">Set on the device</h2><p class="sub" data-t="deviceSetupSub">Configure the terminal to send attendance data to this PC</p></div></div>
+        <article class="card setup-card">
+          <div class="setup-grid">
+            <div><label data-t="serverAddress">Server Address</label><div class="copy-value"><strong id="lan-address">—</strong><button class="copy" data-copy="lan-address" data-t="copy">Copy</button></div><small id="other-addresses" class="muted"></small></div>
+            <div><label data-t="port">Port</label><div class="copy-value"><strong id="device-port">17081</strong><button class="copy" data-copy="device-port" data-t="copy">Copy</button></div></div>
+            <div><label data-t="domainName">Enable Domain Name</label><strong class="off"><span></span><span data-t="off">OFF</span></strong></div>
+            <div><label data-t="https">HTTPS</label><strong class="off"><span></span><span data-t="off">OFF</span></strong></div>
+          </div>
+          <div class="steps"><strong data-t="menuSteps">Menu &gt; Comm. &gt; Cloud Server Setting</strong><span data-t="deviceSteps">Enter the Server Address and Port above. Keep Domain Name and HTTPS turned OFF.</span></div>
+        </article>
+      </section>
+      <section id="page-setup" class="page hidden">
+        <div class="page-heading"><div><p class="eyebrow" data-t="deviceSetup">DEVICE SETUP</p><h1 data-t="setup">Device Setup</h1><p class="sub" data-t="setupSub">Follow these steps to connect a time attendance device.</p></div><button id="setup-pin" class="button secondary" data-t="setPIN">Set a PIN</button></div>
+        <article class="card setup-step"><div class="step-number">1</div><div><h2 data-t="keyStatus">HRMS connection</h2><strong id="setup-company">—</strong><small id="setup-site"></small><p id="setup-connection" class="muted"></p></div></article>
+        <article class="card setup-step"><div class="step-number">2</div><div class="setup-step-content"><h2 data-t="deviceValues">Enter these values on the device</h2>
+          <div class="setup-grid">
+            <div><label data-t="serverMode">Server Mode</label><div class="copy-value"><strong id="setup-mode">ADMS</strong><button class="copy" data-copy="setup-mode" data-t="copy">Copy</button></div></div>
+            <div><label data-t="serverAddress">Server Address</label><div class="copy-value"><select id="setup-address"></select><button class="copy" data-copy="setup-address" data-t="copy">Copy</button></div></div>
+            <div><label data-t="port">Port</label><div class="copy-value"><strong id="setup-port">—</strong><button class="copy" data-copy="setup-port" data-t="copy">Copy</button></div></div>
+            <div><label data-t="domainName">Enable Domain Name</label><div class="copy-value"><strong class="off" data-t="off">OFF</strong><button class="copy" data-copy="setup-domain" data-t="copy">Copy</button><span id="setup-domain" class="hidden">OFF</span></div></div>
+            <div><label data-t="https">HTTPS</label><div class="copy-value"><strong class="off" data-t="off">OFF</strong><button class="copy" data-copy="setup-https" data-t="copy">Copy</button><span id="setup-https" class="hidden">OFF</span></div></div>
+            <div><label data-t="proxySetting">Proxy</label><div class="copy-value"><strong class="off" data-t="off">OFF</strong><button class="copy" data-copy="setup-proxy" data-t="copy">Copy</button><span id="setup-proxy" class="hidden">OFF</span></div></div>
+          </div>
+        </div></article>
+        <article class="card setup-step"><div class="step-number">3</div><div class="setup-step-content"><h2 data-t="suggestedNetwork">Suggested device network settings</h2><p class="hint" data-t="suggestedNetworkNote">Suggestions are best effort. Check with your network administrator before using them.</p>
+          <div class="setup-grid">
+            <div><label data-t="suggestedIPs">Possible unused IPs</label><div id="setup-candidates" class="copy-stack"></div></div>
+            <div><label data-t="subnetMask">Subnet mask</label><div class="copy-value"><strong id="setup-mask">—</strong><button class="copy" data-copy="setup-mask" data-t="copy">Copy</button></div></div>
+            <div><label data-t="gateway">Gateway</label><div class="copy-value"><strong id="setup-gateway">—</strong><button class="copy" data-copy="setup-gateway" data-t="copy">Copy</button></div></div>
+            <div><label data-t="dns">DNS</label><div class="copy-value"><strong id="setup-dns">—</strong><button class="copy" data-copy="setup-dns" data-t="copy">Copy</button></div></div>
+          </div><small id="setup-network-note" class="hint"></small>
+        </div></article>
+        <article class="card setup-step"><div class="step-number">4</div><div><h2 data-t="deviceMenuPath">Device menu and reminders</h2><p><strong>Menu &gt; Comm. &gt; Cloud Server Setting</strong></p><p data-t="deviceReminder">Also set the correct date/time and set Punch State to Auto.</p></div></article>
+        <article id="device-live" class="card setup-step live-device"><div class="step-number">5</div><div><h2 data-t="deviceConnection">Device connection</h2><strong id="setup-live-status" data-t="waitingDevice">Waiting for a device…</strong><p id="setup-live-detail" class="muted"></p></div></article>
+        <button class="button secondary screen-only" onclick="window.print()" data-t="print">Print setup</button>
+      </section>
+      <section id="page-settings" class="page hidden">
+        <div class="page-heading"><div><p class="eyebrow" data-t="configure">CONFIGURE</p><h1 data-t="settings">Settings</h1><p class="sub" data-t="settingsSub">Manage your HRMS connection and local security</p></div></div>
+        <form id="settings-form" class="card form-card">
+          <div class="field"><label data-t="connectionKey">Connection Key</label><div class="key-row"><input id="key-input" type="password" autocomplete="off" placeholder="HRMS1.…"><button type="button" id="verify-key" class="button secondary" data-t="verify">Verify</button></div><small id="key-masked" class="hint"></small><div id="verify-result" class="verify-result" style="white-space:pre-line"></div></div>
+          <div class="form-grid">
+            <div class="field"><label for="port-input" data-t="relayPort">Device relay port</label><div class="key-row"><input id="port-input" type="number" min="1024" max="49151" required><button type="button" id="check-port" class="button secondary" data-t="check">Check</button></div><small class="hint" data-t="relayPortWarning">Changing this port requires updating every device.</small></div>
+            <div class="field"><label data-t="uiPort">Local UI port</label><input id="ui-port-input" type="number" readonly><small class="hint" data-t="uiPortFixed">Fixed after installation.</small></div>
+            <div class="field"><label data-t="language">Language</label><select id="language-input"><option value="bn">বাংলা</option><option value="en">English</option></select></div>
+            <div class="field"><label data-t="newPIN">New UI PIN (optional)</label><input id="pin-input" type="password" autocomplete="new-password" maxlength="128"><small class="hint" data-t="pinHelp">A PIN is required for every settings change when configured.</small><label class="checkline"><input id="clear-pin" type="checkbox"><span data-t="removePIN">Remove existing PIN</span></label></div>
+          </div>
+          <details class="advanced"><summary data-t="advanced">Advanced settings</summary>
+            <div class="form-grid">
+              <div class="field"><label data-t="allowedCIDRs">Allowed device networks (CIDRs)</label><textarea id="cidrs-input" rows="4"></textarea><small class="hint">One CIDR per line</small></div>
+              <div class="field"><label data-t="timeout">Upstream timeout (seconds)</label><input id="timeout-input" type="number" min="1" max="300"><label data-t="maxBody">Maximum request body (KB)</label><input id="body-input" type="number" min="1"><label data-t="proxy">HTTP proxy (optional)</label><input id="proxy-input" type="url" placeholder="http://proxy.example:8080"></div>
+              <div class="field"><label data-t="logLevel">Log level</label><select id="log-input"><option>debug</option><option>info</option><option>warn</option><option>error</option></select><label class="checkline"><input id="tls-input" type="checkbox"><span data-t="verifyTLS">Verify HRMS TLS certificate</span></label></div>
+            </div>
+          </details>
+          <div class="form-actions"><span id="save-result" class="muted"></span><button class="button primary" type="submit" data-t="save">Save settings</button></div>
+        </form>
+      </section>
+      <section id="page-logs" class="page hidden">
+        <div class="page-heading"><div><p class="eyebrow" data-t="diagnostics">DIAGNOSTICS</p><h1 data-t="logs">Logs</h1><p class="sub" data-t="logsSub">Most recent 300 relay requests</p></div><a class="button secondary" href="/api/logs/download" data-t="download">Download log</a></div>
+        <article class="card log-card"><pre id="log-lines">Loading…</pre></article>
+      </section>
+      <section id="page-about" class="page hidden">
+        <div class="page-heading"><div><p class="eyebrow" data-t="product">PRODUCT</p><h1 data-t="about">About</h1></div></div>
+        <article class="card about-card"><div class="brand large"><span class="brand-mark">H</span><div><strong>HRMS Connector</strong><small data-t="aboutSubtitle">Secure attendance relay</small></div></div><dl><dt data-t="version">Version</dt><dd id="about-version">—</dd><dt data-t="dataDirectory">Data directory</dt><dd id="about-dir">—</dd></dl></article>
+      </section>
+    </main>
+  </div>
+  <div id="toast" class="toast"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
