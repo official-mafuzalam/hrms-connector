@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"math/big"
 	"net"
 	"net/http"
 	"os"
@@ -13,6 +15,7 @@ import (
 	"os/signal"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -71,6 +74,8 @@ func execute(args []string) error {
 		return checkPorts(args[1:])
 	case "check-port":
 		return checkPort(args[1:])
+	case "allocate-port":
+		return allocatePort(args[1:])
 	case "config-port":
 		return showConfigPort(args[1:])
 	case "shortcut":
@@ -129,16 +134,10 @@ func openLocalUI(dataDir string) error {
 }
 
 func waitReady(args []string) error {
-	flags := flag.NewFlagSet("wait-ready", flag.ContinueOnError)
-	timeout := flags.Duration("timeout", 30*time.Second, "maximum time to wait for the local UI")
-	dataDir := flags.String("data-dir", "", "configuration directory")
-	if err := flags.Parse(args); err != nil {
+	dir, timeout, err := parseWaitReadyArgs(args)
+	if err != nil {
 		return err
 	}
-	if flags.NArg() != 0 || *timeout <= 0 {
-		return errors.New("usage: connector wait-ready [--timeout 30s] [--data-dir PATH]")
-	}
-	dir := *dataDir
 	if dir == "" {
 		dir = config.DefaultDataDir()
 	}
@@ -147,7 +146,57 @@ func waitReady(args []string) error {
 		return err
 	}
 	address := fmt.Sprintf("http://127.0.0.1:%d/api/status", cfg.UIPort)
-	return waitForURL(address, *timeout)
+	return waitForURL(address, timeout)
+}
+
+func parseWaitReadyArgs(args []string) (string, time.Duration, error) {
+	flags := flag.NewFlagSet("wait-ready", flag.ContinueOnError)
+	timeout := 30 * time.Second
+	flags.Var(&waitTimeoutValue{duration: &timeout}, "timeout", "maximum time to wait for the local UI (duration or integer seconds)")
+	dataDir := flags.String("data-dir", "", "configuration directory")
+	if err := flags.Parse(args); err != nil {
+		return "", 0, err
+	}
+	if flags.NArg() != 0 || timeout <= 0 {
+		return "", 0, errors.New("usage: connector wait-ready [--timeout 30|30s] [--data-dir PATH]")
+	}
+	return *dataDir, timeout, nil
+}
+
+type waitTimeoutValue struct {
+	duration *time.Duration
+}
+
+func (v *waitTimeoutValue) String() string {
+	if v.duration == nil {
+		return ""
+	}
+	return v.duration.String()
+}
+
+func (v *waitTimeoutValue) Set(value string) error {
+	duration, err := parseWaitTimeout(value)
+	if err != nil {
+		return err
+	}
+	*v.duration = duration
+	return nil
+}
+
+func parseWaitTimeout(value string) (time.Duration, error) {
+	if duration, err := time.ParseDuration(value); err == nil {
+		return duration, nil
+	}
+	seconds, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		return 0, fmt.Errorf("timeout must be a duration (for example 30s) or integer seconds: %q", value)
+	}
+	maxSeconds := int64((1<<63 - 1) / int64(time.Second))
+	minSeconds := int64(-maxSeconds)
+	if int64(seconds) > maxSeconds || int64(seconds) < minSeconds {
+		return 0, fmt.Errorf("timeout seconds are out of range: %q", value)
+	}
+	return time.Duration(seconds) * time.Second, nil
 }
 
 func waitForURL(address string, timeout time.Duration) error {
@@ -246,6 +295,61 @@ func checkPortWith(port int, runner portcheck.Runner, address string) error {
 	return nil
 }
 
+func allocatePort(args []string) error {
+	flags := flag.NewFlagSet("allocate-port", flag.ContinueOnError)
+	preferred := flags.Int("preferred", 0, "preferred port, or 0 to select one")
+	excluded := flags.Int("exclude", 0, "port that must not be selected")
+	bind := flags.String("bind", "0.0.0.0", "address to check: 0.0.0.0 or 127.0.0.1")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("allocate-port does not accept positional arguments")
+	}
+	if (*preferred != 0 && (*preferred < 1024 || *preferred > 49151)) ||
+		(*excluded != 0 && (*excluded < 1024 || *excluded > 49151)) {
+		return errors.New("ports must be between 1024 and 49151")
+	}
+	if *bind != "0.0.0.0" && *bind != "127.0.0.1" {
+		return errors.New("bind must be 0.0.0.0 or 127.0.0.1")
+	}
+	port, err := findAvailablePort(*preferred, *excluded, *bind, portcheck.ExecRunner{})
+	if err != nil {
+		return err
+	}
+	fmt.Print(port)
+	return nil
+}
+
+func findAvailablePort(preferred, excluded int, bind string, runner portcheck.Runner) (int, error) {
+	check := func(port int) bool {
+		if port == excluded {
+			return false
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return portcheck.Check(ctx, runner, bind, port).Available
+	}
+	if preferred != 0 && check(preferred) {
+		return preferred, nil
+	}
+
+	const firstPort, lastPort = 1024, 49151
+	count := int64(lastPort - firstPort + 1)
+	offset, err := rand.Int(rand.Reader, big.NewInt(count))
+	if err != nil {
+		return 0, fmt.Errorf("choose an available port: %w", err)
+	}
+	start := firstPort + int(offset.Int64())
+	for i := 0; i < int(count); i++ {
+		port := firstPort + (start-firstPort+i)%int(count)
+		if check(port) {
+			return port, nil
+		}
+	}
+	return 0, errors.New("no available port found between 1024 and 49151")
+}
+
 func decimalDigits(value string) bool {
 	if value == "" {
 		return false
@@ -278,9 +382,9 @@ func showConfigPort(args []string) error {
 	}
 	switch *kind {
 	case "relay":
-		fmt.Println(cfg.Port)
+		fmt.Print(cfg.Port)
 	case "ui":
-		fmt.Println(cfg.UIPort)
+		fmt.Print(cfg.UIPort)
 	default:
 		return errors.New("config-port requires --kind relay or --kind ui")
 	}

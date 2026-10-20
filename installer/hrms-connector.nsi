@@ -46,22 +46,15 @@ Var Key
 Var VerifiedKey
 Var Port
 Var UIPort
-Var OldPort
-Var OldUIPort
-Var PortProvided
-Var UIPortProvided
 Var Netfix
 Var NetChanged
 Var NetWasDHCP
 Var ExistingConfig
-Var ExistingServiceRunning
 Var Dialog
 Var KeyControl
 Var VerifyResult
 Var NetworkLabel
 Var NetfixControl
-Var PortControl
-Var UIPortControl
 Var DesktopShortcut
 Var DesktopShortcutControl
 Var ConfigArgs
@@ -72,12 +65,8 @@ Var LogPath
 Var CommandCode
 Var CommandOutput
 Var FinishWarning
-Var PortErrorControl
 Var ServiceDetails
 Var Retry
-Var CheckPortValue
-Var CheckPortKind
-Var OldPortToCompare
 Var FailureStep
 Var FailureDetails
 Var FailureCommand
@@ -91,13 +80,12 @@ Var LogCopyLine
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
 Page custom ConnectionPageCreate ConnectionPageLeave
-Page custom PortsPageCreate PortsPageLeave
 Page custom NetworkPageCreate NetworkPageLeave
 !insertmacro MUI_PAGE_INSTFILES
 !define MUI_FINISHPAGE_RUN "Open HRMS Connector"
 !define MUI_FINISHPAGE_RUN_FUNCTION FinishRun
 !define MUI_FINISHPAGE_RUN_TEXT "Open HRMS Connector now"
-!define MUI_FINISHPAGE_TEXT "Installation finished. $FinishWarning$\r$\nInstaller log: $LogPath"
+!define MUI_FINISHPAGE_TEXT "Installation finished. Device relay port: $Port. Local UI port: $UIPort. $FinishWarning$\r$\nInstaller log: $LogPath"
 !insertmacro MUI_PAGE_FINISH
 
 !insertmacro MUI_UNPAGE_CONFIRM
@@ -124,60 +112,46 @@ Function .onInit
 !endif
   Push "Installer started. Destination: $INSTDIR. Log: $LogPath"
   Call LogLine
-  StrCpy $Port "17081"
-  StrCpy $UIPort "17082"
-  StrCpy $PortProvided "0"
-  StrCpy $UIPortProvided "0"
+  StrCpy $Port "0"
+  StrCpy $UIPort "0"
   StrCpy $DesktopShortcut "1"
   StrCpy $Netfix "1"
   StrCpy $NetChanged "0"
   StrCpy $NetWasDHCP "0"
-  StrCpy $ExistingServiceRunning "0"
   IfFileExists "$ProgramDataDir\config.json" 0 +2
     StrCpy $ExistingConfig "1"
   ${GetParameters} $0
   ${GetOptions} $0 "/KEY=" $Key
-  ClearErrors
-  ${GetOptions} $0 "/PORT=" $Port
-  IfErrors noRelayPort
-  StrCpy $PortProvided "1"
-noRelayPort:
-  ClearErrors
-  ${GetOptions} $0 "/UIPORT=" $UIPort
-  IfErrors noUIPort
-  StrCpy $UIPortProvided "1"
-noUIPort:
   ${GetOptions} $0 "/NETFIX=" $Netfix
   ${GetOptions} $0 "/DESKTOP=" $DesktopShortcut
+  ClearErrors
+  ${GetOptions} $0 "/PORT=" $1
+  IfErrors noLegacyRelayPort
+  Push "WARNING: /PORT is no longer supported; the installer selects an available relay port."
+  Call LogLine
+noLegacyRelayPort:
+  ClearErrors
+  ${GetOptions} $0 "/UIPORT=" $1
+  IfErrors noLegacyUIPort
+  Push "WARNING: /UIPORT is no longer supported; the installer selects an available local UI port."
+  Call LogLine
+noLegacyUIPort:
   ${If} $ExistingConfig == "1"
-    !insertmacro ExecLogged "read saved relay port" '"$PLUGINSDIR\connector-verify.exe" config-port --kind relay'
+    !insertmacro ExecLogged "read saved relay port" '"$PLUGINSDIR\connector-verify.exe" config-port --kind relay --data-dir "$ProgramDataDir"'
     ${If} $CommandCode == "0"
-      StrCpy $OldPort $CommandOutput
-      ${If} $PortProvided == "0"
-        StrCpy $Port $CommandOutput
-      ${EndIf}
+      StrCpy $Port $CommandOutput
     ${Else}
       Push "WARNING: could not read the saved relay port. Exit code: $CommandCode. $CommandOutput"
       Call LogLine
-      StrCpy $FinishWarning "Saved configuration could not be read; verify the ports before continuing. "
+      StrCpy $FinishWarning "Saved relay port could not be reused; the installer will select an available one. "
     ${EndIf}
-    !insertmacro ExecLogged "read saved UI port" '"$PLUGINSDIR\connector-verify.exe" config-port --kind ui'
+    !insertmacro ExecLogged "read saved UI port" '"$PLUGINSDIR\connector-verify.exe" config-port --kind ui --data-dir "$ProgramDataDir"'
     ${If} $CommandCode == "0"
-      StrCpy $OldUIPort $CommandOutput
-      ${If} $UIPortProvided == "0"
-        StrCpy $UIPort $CommandOutput
-      ${EndIf}
+      StrCpy $UIPort $CommandOutput
     ${Else}
       Push "WARNING: could not read the saved UI port. Exit code: $CommandCode. $CommandOutput"
       Call LogLine
-      StrCpy $FinishWarning "Saved configuration could not be read; verify the ports before continuing. "
-    ${EndIf}
-  ${EndIf}
-  !insertmacro ExecLogged "detect running existing connector service" '"$SYSDIR\sc.exe" query HRMSConnector'
-  ${If} $CommandCode == "0"
-    ${StrStr} $R0 $CommandOutput "RUNNING"
-    ${If} $R0 != ""
-      StrCpy $ExistingServiceRunning "1"
+      StrCpy $FinishWarning "Saved UI port could not be reused; the installer will select an available one. "
     ${EndIf}
   ${EndIf}
   IfSilent 0 done
@@ -191,7 +165,6 @@ noUIPort:
     MessageBox MB_ICONSTOP "A new installation requires /KEY=<connection-key>."
     Abort
   ${EndIf}
-  Call ValidateSilentPorts
 done:
 FunctionEnd
 
@@ -357,139 +330,30 @@ silent:
   Return
 FunctionEnd
 
-Function CheckInstallerPorts
-  StrCpy $CheckPortValue "$Port"
-  StrCpy $CheckPortKind "Relay"
-  StrCpy $OldPortToCompare "$OldPort"
-  Call CheckOnePort
+Function SelectInstallPorts
+  !insertmacro ExecLogged "select an available device relay port" '"$PLUGINSDIR\connector-verify.exe" allocate-port --preferred "$Port" --bind 0.0.0.0'
   ${If} $CommandCode != "0"
-    Return
-  ${EndIf}
-  StrCpy $CheckPortValue "$UIPort"
-  StrCpy $CheckPortKind "UI"
-  StrCpy $OldPortToCompare "$OldUIPort"
-  Call CheckOnePort
-FunctionEnd
-
-Function CheckOnePort
-  ${If} $ExistingServiceRunning == "1"
-  ${AndIf} $CheckPortValue == $OldPortToCompare
-    StrCpy $CommandCode "0"
-    StrCpy $CommandOutput "Saved port unchanged; bind check skipped because the installed service owns it."
-    Push "$CheckPortKind port $CheckPortValue unchanged."
+    StrCpy $FinishWarning "$FinishWarning Automatic relay port selection failed; using default port 17081. "
+    Push "WARNING: relay port selection failed. Exit code: $CommandCode. Output: $CommandOutput"
     Call LogLine
-    Return
-  ${EndIf}
-  !insertmacro ExecLogged "check port $CheckPortValue" '"$PLUGINSDIR\connector-verify.exe" check-port "$CheckPortValue"'
-FunctionEnd
-
-Function ValidateSilentPorts
-  IfSilent 0 done
-  Call CheckInstallerPorts
-  ${If} $CommandCode != "0"
-    MessageBox MB_ICONSTOP "Step: validate installer ports. Exit code: $CommandCode$\r$\nOutput: $CommandOutput$\r$\nLog: $LogPath"
-    Abort
-  ${EndIf}
-  IntCmp $Port $UIPort relayInvalid relayValid relayValid
-relayInvalid:
-  MessageBox MB_ICONSTOP "Step: validate installer ports. Relay and UI ports must be different ($Port and $UIPort). Log: $LogPath"
-  Abort
-relayValid:
-done:
-FunctionEnd
-
-Function PortsPageCreate
-  IfSilent silent
-  nsDialogs::Create 1018
-  Pop $Dialog
-  ${If} $Dialog == error
-    MessageBox MB_ICONSTOP "Step: create ports page. The installer could not initialize the page.$\r$\nLog: $LogPath"
-    Push "ERROR: ports dialog could not be initialized."
-    Call LogLine
-    Abort
-  ${EndIf}
-  ${NSD_CreateLabel} 0 0 100% 30u "Select available ports (1024–49151). The relay port is entered on every device; the local UI port stays fixed after installation."
-  Pop $0
-  ${NSD_CreateLabel} 0 35u 35% 14u "Device relay port"
-  Pop $0
-  ${NSD_CreateNumber} 40% 33u 60% 16u "$Port"
-  Pop $PortControl
-  ${NSD_CreateLabel} 0 57u 35% 14u "Local UI port (fixed)"
-  Pop $0
-  ${NSD_CreateNumber} 40% 55u 60% 16u "$UIPort"
-  Pop $UIPortControl
-  ${NSD_CreateLabel} 0 75u 100% 25u ""
-  Pop $PortErrorControl
-  ${NSD_CreateCheckbox} 0 105u 100% 20u "Create a Desktop shortcut"
-  Pop $DesktopShortcutControl
-  ${If} $DesktopShortcut == "1"
-    ${NSD_Check} $DesktopShortcutControl
-  ${EndIf}
-  nsDialogs::Show
-  Return
-silent:
-  Return
-FunctionEnd
-
-Function PortsPageLeave
-  IfSilent silent
-  ${NSD_GetText} $PortControl $Port
-  ${NSD_GetText} $UIPortControl $UIPort
-  ${NSD_GetState} $DesktopShortcutControl $0
-  ${If} $0 == ${BST_CHECKED}
-    StrCpy $DesktopShortcut "1"
+    StrCpy $Port "17081"
   ${Else}
-    StrCpy $DesktopShortcut "0"
+    StrCpy $Port "$CommandOutput"
   ${EndIf}
-silent:
-  Push ""
-  Call SetPortPageError
-  Push "Validating selected ports: relay=$Port UI=$UIPort"
-  Call LogLine
-  StrCpy $CheckPortValue "$Port"
-  StrCpy $CheckPortKind "Relay"
-  StrCpy $OldPortToCompare "$OldPort"
-  Call CheckOnePort
+  !insertmacro ExecLogged "select an available local UI port" '"$PLUGINSDIR\connector-verify.exe" allocate-port --preferred "$UIPort" --exclude "$Port" --bind 127.0.0.1'
   ${If} $CommandCode != "0"
-    Push "Relay port $Port (exit $CommandCode): $CommandOutput"
-    Call SetPortPageError
-    Push "Relay port $Port rejected. Exit code: $CommandCode. $CommandOutput"
+    StrCpy $FinishWarning "$FinishWarning Automatic UI port selection failed; using default port 17082. "
+    Push "WARNING: UI port selection failed. Exit code: $CommandCode. Output: $CommandOutput"
     Call LogLine
-    Abort
+    StrCpy $UIPort "17082"
+    ${If} $UIPort == $Port
+      StrCpy $UIPort "17083"
+    ${EndIf}
+  ${Else}
+    StrCpy $UIPort "$CommandOutput"
   ${EndIf}
-  StrCpy $CheckPortValue "$UIPort"
-  StrCpy $CheckPortKind "UI"
-  StrCpy $OldPortToCompare "$OldUIPort"
-  Call CheckOnePort
-  ${If} $CommandCode != "0"
-    Push "UI port $UIPort (exit $CommandCode): $CommandOutput"
-    Call SetPortPageError
-    Push "UI port $UIPort rejected. Exit code: $CommandCode. $CommandOutput"
-    Call LogLine
-    Abort
-  ${EndIf}
-  IntCmp $Port $UIPort samePorts distinctPorts distinctPorts
-samePorts:
-  Push "Relay and UI ports must be different."
-  Call SetPortPageError
-  Push "Selected ports are identical: $Port"
+  Push "Automatically selected relay port $Port and local UI port $UIPort."
   Call LogLine
-  Abort
-distinctPorts:
-  Call CheckInstallerPorts
-  ${If} $CommandCode != "0"
-    Push "$CommandOutput"
-    Call SetPortPageError
-    Abort
-  ${EndIf}
-FunctionEnd
-
-Function SetPortPageError
-  Exch $0
-  IfSilent setPortPageErrorDone
-  ${NSD_SetText} $PortErrorControl "$0"
-setPortPageErrorDone:
-  Pop $0
 FunctionEnd
 
 Function CaptureDHCPState
@@ -523,15 +387,37 @@ Function NetworkPageCreate
   ${If} $Netfix == "1"
     ${NSD_Check} $NetfixControl
   ${EndIf}
+  ${NSD_CreateCheckbox} 0 138u 100% 20u "Create a Desktop shortcut for HRMS Connector"
+  Pop $DesktopShortcutControl
+  ${If} $DesktopShortcut == "1"
+    ${NSD_Check} $DesktopShortcutControl
+  ${EndIf}
+  ${NSD_OnClick} $DesktopShortcutControl DesktopShortcutClick
   nsDialogs::Show
   Return
 silent:
   Return
 FunctionEnd
 
+Function DesktopShortcutClick
+  Pop $0
+  ${NSD_GetState} $0 $1
+  ${If} $1 == ${BST_CHECKED}
+    StrCpy $DesktopShortcut "1"
+  ${Else}
+    StrCpy $DesktopShortcut "0"
+  ${EndIf}
+FunctionEnd
+
 Function NetworkPageLeave
   IfSilent silent
   ${NSD_GetState} $NetfixControl $0
+  ${NSD_GetState} $DesktopShortcutControl $1
+  ${If} $1 == ${BST_CHECKED}
+    StrCpy $DesktopShortcut "1"
+  ${Else}
+    StrCpy $DesktopShortcut "0"
+  ${EndIf}
   ${If} $0 == ${BST_CHECKED}
     Call CaptureDHCPState
     !insertmacro ExecLogged "optional DHCP-to-static network setup" '"$PLUGINSDIR\connector-verify.exe" netfix --apply'
@@ -598,9 +484,10 @@ Function CleanupExistingService
       Call LogLine
       Goto cleanupKillProcesses
     ${EndIf}
-    StrCpy $FailureStep "query existing Windows service"
-    StrCpy $FailureDetails "sc.exe query HRMSConnector failed."
-    Call AbortInstall
+    StrCpy $FinishWarning "$FinishWarning Existing service could not be queried; upgrade cleanup was attempted. "
+    Push "WARNING: query existing service failed. Exit code: $CommandCode. Output: $CommandOutput"
+    Call LogLine
+    Goto cleanupKillProcesses
   ${EndIf}
   !insertmacro ExecLogged "stop existing HRMSConnector service" '"$SYSDIR\sc.exe" stop HRMSConnector'
   StrCpy $Retry 0
@@ -614,12 +501,9 @@ cleanupWaitStop:
   ${EndIf}
   Goto cleanupKillProcesses
 cleanupStopFailed:
-  StrCpy $FailureStep "stop existing Windows service"
-  StrCpy $FailureCommand "sc.exe query HRMSConnector (after stop request)"
-  StrCpy $FailureCode "$CommandCode"
-  StrCpy $FailureOutput "$CommandOutput"
-  StrCpy $FailureDetails "Service did not reach STOPPED after three checks."
-  Call AbortInstall
+  StrCpy $FinishWarning "$FinishWarning Existing service did not stop cleanly; cleanup continued. "
+  Push "WARNING: existing service did not reach STOPPED after three checks. Exit code: $CommandCode. Output: $CommandOutput"
+  Call LogLine
 cleanupKillProcesses:
   !insertmacro ExecLogged "terminate remaining connector process" '"$SYSDIR\taskkill.exe" /F /IM connector.exe /T'
   !insertmacro ExecLogged "terminate any legacy tray process" '"$SYSDIR\taskkill.exe" /F /IM connector-tray.exe /T'
@@ -637,12 +521,9 @@ cleanupWaitDelete:
   IntOp $Retry $Retry + 1
   IntCmp $Retry 3 cleanupDeleteFailed cleanupWaitDelete cleanupDeleteFailed
 cleanupDeleteFailed:
-  StrCpy $FailureStep "delete existing Windows service"
-  StrCpy $FailureCommand "sc.exe query HRMSConnector (after delete request)"
-  StrCpy $FailureCode "$CommandCode"
-  StrCpy $FailureOutput "$CommandOutput"
-  StrCpy $FailureDetails "Service remains registered after three delete checks."
-  Call AbortInstall
+  StrCpy $FinishWarning "$FinishWarning Existing service registration could not be removed; service install may fail. "
+  Push "WARNING: existing service remains registered after three delete checks. Exit code: $CommandCode. Output: $CommandOutput"
+  Call LogLine
 cleanupDone:
   Push "Existing service stopped and removed."
   Call LogLine
@@ -662,36 +543,27 @@ Section "Install"
   Push "Preparing existing service for upgrade."
   Call LogLine
   Call CleanupExistingService
+  Call SelectInstallPorts
 
   SetOutPath "$INSTDIR"
   File "../dist/connector.exe"
   CreateDirectory "$ProgramDataDir"
   !insertmacro ExecLogged "grant service data-directory permissions" '"$SYSDIR\icacls.exe" "$ProgramDataDir" /grant "NT AUTHORITY\LOCAL SERVICE:(OI)(CI)M" /T /C'
   ${If} $CommandCode != "0"
-    StrCpy $FailureStep "grant LocalService access to the data directory"
-    StrCpy $FailureCommand "icacls.exe ProgramData\\HRMS Connector /grant LocalService modify"
-    StrCpy $FailureCode "$CommandCode"
-    StrCpy $FailureOutput "$CommandOutput"
-    StrCpy $FailureDetails "icacls.exe could not grant the service account write access."
-    Call AbortInstall
+    StrCpy $FinishWarning "$FinishWarning Service data-folder permissions could not be confirmed. "
+    Push "WARNING: icacls permission setup failed. Exit code: $CommandCode. Output: $CommandOutput"
+    Call LogLine
   ${EndIf}
 
+  StrCpy $ConfigArgs 'configure --port "$Port" --ui-port "$UIPort" --data-dir "$ProgramDataDir"'
   ${If} $Key != ""
-  ${OrIf} $Port != $OldPort
-  ${OrIf} $UIPort != $OldUIPort
-    StrCpy $ConfigArgs 'configure --port "$Port" --ui-port "$UIPort"'
-    ${If} $Key != ""
-      StrCpy $ConfigArgs '$ConfigArgs --key "$Key"'
-    ${EndIf}
-    !insertmacro ExecLogged "save connector configuration" '"$INSTDIR\connector.exe" $ConfigArgs'
-    ${If} $CommandCode != "0"
-      StrCpy $FailureStep "save connector configuration"
-      StrCpy $FailureCommand "connector.exe configure --port $Port --ui-port $UIPort"
-      StrCpy $FailureCode "$CommandCode"
-      StrCpy $FailureOutput "$CommandOutput"
-      StrCpy $FailureDetails "Existing config.json and connection key are retained unless explicitly changed."
-      Call AbortInstall
-    ${EndIf}
+    StrCpy $ConfigArgs '$ConfigArgs --key "$Key"'
+  ${EndIf}
+  !insertmacro ExecLogged "save connector configuration" '"$INSTDIR\connector.exe" $ConfigArgs'
+  ${If} $CommandCode != "0"
+    StrCpy $FinishWarning "$FinishWarning Connector configuration could not be updated; check the log. "
+    Push "WARNING: connector configuration failed. Exit code: $CommandCode. Output: $CommandOutput"
+    Call LogLine
   ${EndIf}
 
   WriteRegStr HKLM "Software\HRMSConnector" "InstallDir" "$INSTDIR"
@@ -731,12 +603,9 @@ Section "Install"
   ${EndIf}
   !insertmacro ExecLogged "configure delayed automatic service start" '"$SYSDIR\sc.exe" config HRMSConnector start= delayed-auto'
   ${If} $CommandCode != "0"
-    StrCpy $FailureStep "configure delayed automatic service start"
-    StrCpy $FailureCommand "sc.exe config HRMSConnector start= delayed-auto"
-    StrCpy $FailureCode "$CommandCode"
-    StrCpy $FailureOutput "$CommandOutput"
-    StrCpy $FailureDetails "sc.exe config failed."
-    Call AbortInstall
+    StrCpy $FinishWarning "$FinishWarning Delayed automatic service start could not be configured. "
+    Push "WARNING: delayed service start configuration failed. Exit code: $CommandCode. Output: $CommandOutput"
+    Call LogLine
   ${EndIf}
   !insertmacro ExecLogged "configure service recovery actions" '"$SYSDIR\sc.exe" failure HRMSConnector reset= 86400 actions= restart/5000/restart/30000/restart/60000'
   ${If} $CommandCode != "0"
@@ -754,15 +623,14 @@ Section "Install"
     StrCpy $FailureDetails "$ServiceDetails"
     Call AbortInstall
   ${EndIf}
-  !insertmacro ExecLogged "wait up to 30 seconds for the local UI" '"$INSTDIR\connector.exe" wait-ready --timeout 30'
+  !insertmacro ExecLogged "wait up to 30 seconds for the local UI" '"$INSTDIR\connector.exe" wait-ready --timeout 30s --data-dir "$ProgramDataDir"'
   ${If} $CommandCode != "0"
-    StrCpy $FailureStep "wait for local connector UI (30 seconds)"
-    StrCpy $FailureCommand "connector.exe wait-ready --timeout 30"
-    StrCpy $FailureCode "$CommandCode"
-    StrCpy $FailureOutput "$CommandOutput"
+    StrCpy $FinishWarning "$FinishWarning Local UI did not become ready within 30 seconds. "
+    Push "WARNING: wait-ready failed. Exit code: $CommandCode. Output: $CommandOutput"
+    Call LogLine
     Call ServiceDiagnostics
-    StrCpy $FailureDetails "$ServiceDetails"
-    Call AbortInstall
+    Push "WARNING: service diagnostics: $ServiceDetails"
+    Call LogLine
   ${EndIf}
   CreateDirectory "$SMPROGRAMS\HRMS Connector"
   !insertmacro ExecLogged "create Start Menu shortcut" '"$INSTDIR\connector.exe" shortcut --path "$SMPROGRAMS\HRMS Connector\HRMS Connector.url" --url "http://127.0.0.1:$UIPort/" --icon "$INSTDIR\connector.exe"'

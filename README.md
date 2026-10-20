@@ -19,17 +19,17 @@ Unsigned Windows builds can cause Microsoft SmartScreen to show **Unknown publis
 
 ## Windows installation
 
-Run the setup executable as Administrator. Verify the HRMS Connection Key in the installer, select the relay and local UI ports, and complete the optional network page. The installer checks that selected ports can bind and are not in Windows' excluded TCP port ranges. New installs use relay port `17081` and local UI port `17082`; both must be between `1024` and `49151`. An upgrade keeps the ports already saved in `config.json` unless new values are selected.
+Run the setup executable as Administrator. Verify the HRMS Connection Key in the installer and complete the optional network page; there is no port-entry step. The installer automatically selects available relay and local UI ports between `1024` and `49151`, checking Windows' excluded TCP ranges, and shows the selected values on the Finish page and dashboard. During upgrades, it keeps saved ports when they remain available and selects replacements if either is occupied.
 
 The installer creates and starts the `HRMSConnector` Windows service, waits up to 30 seconds for the UI to respond, adds the relay firewall rule, and creates Start Menu and (by default) Desktop shortcuts. The UI listens only on `127.0.0.1`; open it on the connector PC at `http://127.0.0.1:<ui-port>/`. The Finish page can open Device Setup directly.
 
 Silent installation supports:
 
 ```text
-HRMS-Connector-Setup-<version>.exe /S /KEY=<connection-key> /PORT=17081 /UIPORT=17082 /NETFIX=1 /DESKTOP=1
+HRMS-Connector-Setup-<version>.exe /S /KEY=<connection-key> /NETFIX=1 /DESKTOP=1
 ```
 
-For an upgrade, omit `/KEY`, `/PORT`, and `/UIPORT` to retain the saved key and ports. `/NETFIX=0` skips the optional network step and `/DESKTOP=0` omits the Desktop shortcut. The key must be verified with the HRMS server during installation.
+For an upgrade, omit `/KEY` to retain the saved key. Ports are selected automatically on every install or upgrade; `/NETFIX=0` skips the optional network step and `/DESKTOP=0` omits the Desktop shortcut. The key must be verified with the HRMS server during installation.
 
 To uninstall, use **Apps & features** or run `uninstall.exe` from the installation directory as Administrator. This stops/removes the service and removes the firewall rule and shortcuts. If this installation changed the PC from DHCP to static addressing, the uninstaller offers to restore DHCP.
 
@@ -44,7 +44,7 @@ On first run, the browser opens the Device Setup page. It shows the HRMS company
 
 The page also shows best-effort suggestions for device IP, subnet mask, gateway, and DNS. Verify suggested addresses with the network administrator before using them. Follow `Menu > Comm. > Cloud Server Setting`; set the correct device date/time and set Punch State to Auto. The live indicator updates when a device contacts the connector. The optional **Set a PIN** action protects later settings changes.
 
-Settings can change the relay port, but the UI port is fixed after installation. Changing the relay port requires updating the port on every device. If the configured relay port is occupied, the connector logs the bind failure, displays a UI warning, and retries that exact port; it does not silently choose another port.
+The installer selects ports before starting the service. During upgrades it stops and removes the old service and connector processes before reusing the saved ports. The relay port is shown on the Status dashboard and Device Setup page; enter that assigned value on every device. If a previously saved port becomes occupied after installation, the connector logs the bind failure, displays a UI warning, and retries that configured port rather than changing it silently.
 
 ## Running manually
 
@@ -56,15 +56,16 @@ On Linux, run:
 go run ./cmd/connector run --data-dir ./data
 ```
 
-The Linux default data directory is `/etc/hrms-connector`; Windows uses `%ProgramData%\HRMS Connector`. The first start creates `config.json` with relay port `17081` and UI port `17082`. Existing configuration files keep their saved ports. The UI is always bound to `127.0.0.1`.
+The Linux default data directory is `/etc/hrms-connector`; Windows uses `%ProgramData%\HRMS Connector`. The first start creates `config.json` with default relay port `17081` and UI port `17082`; the Windows installer automatically chooses available ports and saves them before service startup. Existing configuration files keep their saved ports when available. The UI is always bound to `127.0.0.1`.
 
 Useful commands:
 
 ```text
 connector run [--data-dir PATH]
 connector verify-key <key>
-connector wait-ready [--timeout 30s] [--data-dir PATH]
+connector wait-ready [--timeout 30|30s] [--data-dir PATH]
 connector check-ports [--relay PORT] [--ui PORT]
+connector allocate-port [--preferred PORT] [--exclude PORT] [--bind 0.0.0.0|127.0.0.1]
 connector netfix [--status|--apply|--restore]
 connector version
 ```
@@ -83,7 +84,7 @@ Connection keys use the format `HRMS1.<base64url(JSON)>`, where the JSON contain
 
 These checks require a Windows machine or VM and are not covered by the Linux cross-build:
 
-- Install on a clean VM, verify the key and selected ports, then confirm the service starts.
+- Install on a clean VM, verify the key, confirm ports are selected automatically, then confirm the service starts and the relay port appears on the dashboard.
 - Reboot without logging in and confirm the service remains running and the local UI opens from its shortcut.
 - Connect a test device; confirm live serial/last-seen status and that attendance requests reach HRMS.
 - Confirm the PC IP value is unchanged by installation or the optional DHCP-to-static action; test adapter selection where default-route metrics tie.
